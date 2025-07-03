@@ -1,0 +1,12 @@
+[project]
+name = "sso-gcp-fastapi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "authlib>=1.6.0",
+    "fastapi[all]>=0.115.14",
+    "python-dotenv>=1.1.1",
+    "python-jose>=3.5.0",
+]

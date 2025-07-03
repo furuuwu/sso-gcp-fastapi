@@ -1,0 +1,59 @@
+my-sso-project/
+│
+├── backend_fastapi/
+│   ├── .venv/                  # Virtual environment folder for Python dependencies.
+│   ├── .env                    # Stores secret keys (API keys, etc.). Not committed to source control.
+│   └── main.py                 # The main FastAPI application file. Contains all API endpoints and logic.
+│
+└── frontend_angular/
+    ├── .angular/               # Internal cache folder for the Angular build system.
+    ├── node_modules/           # Stores all the npm packages (dependencies) for the frontend.
+    ├── src/                    # Contains all the source code for your Angular application.
+    │   ├── app/                # The root folder for your application's components, services, and modules.
+    │   │   │
+    │   │   ├── admin/          # Feature folder for the admin section.
+    │   │   │   ├── admin.component.css
+    │   │   │   ├── admin.component.html
+    │   │   │   └── admin.component.ts
+    │   │   │
+    │   │   ├── auth/           # Folder for all authentication-related logic.
+    │   │   │   ├── auth-callback/  # Component to handle the redirect from the backend.
+    │   │   │   │   └── auth-callback.component.ts
+    │   │   │   ├── admin.guard.ts     # Route guard to protect routes that require an 'admin' role.
+    │   │   │   ├── auth.guard.ts      # Route guard to protect routes that require a user to be logged in.
+    │   │   │   ├── auth.interceptor.ts# The functional interceptor that adds the auth token to API requests.
+    │   │   │   └── auth.service.ts    # The service that manages the JWT, user state, and login status.
+    │   │   │
+    │   │   ├── login/          # Feature folder for the login page.
+    │   │   │   ├── login.component.css
+    │   │   │   ├── login.component.html
+    │   │   │   └── login.component.ts
+    │   │   │
+    │   │   ├── profile/        # Feature folder for the user profile page.
+    │   │   │   ├── profile.component.css
+    │   │   │   ├── profile.component.html
+    │   │   │   └── profile.component.ts
+    │   │   │
+    │   │   ├── app.component.css      # Styles for the main App component.
+    │   │   ├── app.component.html     # The main HTML template (shell) for the application.
+    │   │   ├── app.component.ts       # The main App component logic.
+    │   │   ├── app.config.server.ts   # Server-specific providers (e.g., for SSR).
+    │   │   ├── app.config.ts          # Client-side providers (zoneless, hydration, router, http).
+    │   │   └── app.routes.ts          # Defines all the navigation routes for the application.
+    │   │
+    │   ├── assets/             # For static assets like images, fonts, etc.
+    │   ├── environments/       # Environment-specific configuration (e.g., production vs. development).
+    │   ├── index.html          # The single HTML page that is the entry point for the SPA.
+    │   ├── main.server.ts      # The main entry point for the server-side rendering bootstrap process.
+    │   ├── main.ts             # The main entry point that bootstraps the client-side Angular application.
+    │   └── styles.css          # Global styles for the application.
+    │
+    ├── server.ts                 # The Node.js Express server file used to run SSR.
+    ├── .editorconfig             # Configuration for code editors.
+    ├── .gitignore                # Specifies files for Git to ignore.
+    ├── angular.json              # Angular CLI configuration file for the workspace.
+    ├── package.json              # Lists project dependencies and scripts.
+    ├── package-lock.json         # Records the exact versions of dependencies.
+    ├── README.md                 # Project documentation.
+    └── tsconfig.json             # Root TypeScript configuration for the project.
+
