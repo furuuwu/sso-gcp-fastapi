@@ -1,0 +1,17 @@
+<div class="p-6 bg-white rounded-lg shadow-md">
+    <h2 class="text-3xl font-bold mb-4">User Profile</h2>
+
+    @if (user(); as userData) {
+    <div class="flex items-center space-x-4">
+        <img [src]="userData.picture" alt="Profile Picture" class="w-24 h-24 rounded-full">
+        <div>
+            <p class="text-xl"><strong>Name:</strong> {{ userData.name }}</p>
+            <p class="text-lg text-gray-600"><strong>Email:</strong> {{ userData.sub }}</p>
+            <p class="text-lg text-gray-600"><strong>Role:</strong> <span class="capitalize font-semibold">{{
+                    userData.role }}</span></p>
+        </div>
+    </div>
+    } @else {
+    <p>Loading user data...</p>
+    }
+</div>
