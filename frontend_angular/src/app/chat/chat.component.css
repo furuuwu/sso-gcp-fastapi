@@ -1,0 +1,183 @@
+/*
+ * Host container for the entire chat component.
+ * We use flexbox to make it fill the available vertical space.
+ */
+:host {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 120px);
+    /* Full viewport height minus navbar and some padding */
+    max-width: 800px;
+    margin: 20px auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.75rem;
+    /* 12px */
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    overflow: hidden;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/*
+   * Main chat container styling
+   */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background-color: #f9fafb;
+    /* A very light gray background */
+}
+
+/*
+   * Message display area
+   * flex-1 allows it to grow and fill available space.
+   * overflow-y-auto enables scrolling for messages.
+   */
+.message-area {
+    flex: 1;
+    padding: 1.5rem;
+    /* 24px */
+    overflow-y: auto;
+}
+
+.messages {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    /* 16px space between messages */
+}
+
+/*
+   * Individual message styling
+   */
+.message {
+    display: flex;
+    max-width: 75%;
+}
+
+.message.user {
+    justify-content: flex-end;
+    align-self: flex-end;
+}
+
+.message.ai {
+    justify-content: flex-start;
+    align-self: flex-start;
+}
+
+.message-content {
+    padding: 0.75rem 1rem;
+    /* 12px 16px */
+    border-radius: 1rem;
+    /* 16px */
+    line-height: 1.5;
+}
+
+.message.user .message-content {
+    background-color: #3b82f6;
+    /* A nice blue */
+    color: white;
+    border-bottom-right-radius: 0.25rem;
+    /* Give it a "tail" */
+}
+
+.message.ai .message-content {
+    background-color: #e5e7eb;
+    /* A light gray for the AI */
+    color: #1f2937;
+    /* Dark gray text */
+    border-bottom-left-radius: 0.25rem;
+}
+
+/*
+   * Loading indicator (the three dots)
+   */
+.loading-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    /* 8px */
+}
+
+.dot {
+    width: 0.5rem;
+    /* 8px */
+    height: 0.5rem;
+    background-color: #9ca3af;
+    /* Medium gray */
+    border-radius: 9999px;
+    /* Fully rounded */
+    animation: pulse 1.4s infinite ease-in-out both;
+}
+
+.dot:nth-child(1) {
+    animation-delay: -0.32s;
+}
+
+.dot:nth-child(2) {
+    animation-delay: -0.16s;
+}
+
+@keyframes pulse {
+
+    0%,
+    80%,
+    100% {
+        transform: scale(0);
+    }
+
+    40% {
+        transform: scale(1.0);
+    }
+}
+
+/*
+   * Message input area
+   */
+.input-area {
+    padding: 1rem;
+    background-color: white;
+    border-top: 1px solid #e2e8f0;
+}
+
+.input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    /* 12px */
+}
+
+.input-field {
+    flex: 1;
+    padding: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.5rem;
+    /* 8px */
+    transition: box-shadow 0.2s;
+}
+
+.input-field:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px #60a5fa;
+    /* Blue ring on focus */
+}
+
+.send-button {
+    padding: 0.75rem 1.5rem;
+    background-color: #2563eb;
+    color: white;
+    font-weight: 600;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.send-button:hover:not(:disabled) {
+    background-color: #1d4ed8;
+}
+
+.send-button:disabled {
+    background-color: #93c5fd;
+    /* Lighter blue when disabled */
+    cursor: not-allowed; }

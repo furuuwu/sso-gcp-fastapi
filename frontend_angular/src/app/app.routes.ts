@@ -1,3 +1,4 @@
+// frontend_angular/src/app.routes.ts
 // Defines the application's routes, including the callback route.
 
 import { Routes } from '@angular/router';
@@ -7,6 +8,7 @@ import { AdminComponent } from './admin/admin.component';
 import { AuthCallbackComponent } from './auth/auth-callback/auth-callback.component';
 import { authGuard } from './auth/auth.guard';
 import { adminGuard } from './auth/admin.guard';
+import { ChatComponent } from './chat/chat.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
@@ -28,6 +30,10 @@ export const routes: Routes = [
         path: 'admin', 
         component: AdminComponent,
         canActivate: [adminGuard] // A second guard specific to this route
+      },
+      {
+        path: 'chat',
+        component: ChatComponent
       },
       // If an authenticated user navigates to the root path, redirect them to their profile.
       { 

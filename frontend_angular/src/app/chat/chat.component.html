@@ -1,0 +1,43 @@
+<!-- frontend_angular/src/app/chat/chat.component.html -->
+<div class="flex flex-col h-[calc(100vh-10rem)] bg-gray-50 rounded-lg shadow-md">
+    <!-- Message Display Area -->
+    <div class="flex-1 p-6 overflow-y-auto">
+        <div class="flex flex-col space-y-4">
+            @for(message of messages(); track $index) {
+            <div class="flex"
+                [ngClass]="{'justify-end': message.role === 'user', 'justify-start': message.role === 'ai'}">
+                <div class="max-w-lg p-3 rounded-lg" [ngClass]="{
+                'bg-blue-500 text-white': message.role === 'user', 
+                'bg-gray-200 text-gray-800': message.role === 'ai'
+              }">
+                    <p>{{ message.content }}</p>
+                </div>
+            </div>
+            }
+            @if(isLoading()) {
+            <div class="flex justify-start">
+                <div class="max-w-lg p-3 rounded-lg bg-gray-200 text-gray-800">
+                    <div class="flex items-center space-x-2">
+                        <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
+                        <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:0.2s]"></div>
+                        <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:0.4s]"></div>
+                    </div>
+                </div>
+            </div>
+            }
+        </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="p-4 bg-white border-t border-gray-200">
+        <div class="flex items-center space-x-3">
+            <input type="text" [(ngModel)]="userInput" (keyup.enter)="sendMessage()" [disabled]="isLoading()"
+                placeholder="Type your message here..."
+                class="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition" />
+            <button (click)="sendMessage()" [disabled]="isLoading() || userInput().trim() === ''"
+                class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition">
+                Send
+            </button>
+        </div>
+    </div>
+</div>
