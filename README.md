@@ -1,5 +1,16 @@
 # steps
 
+## Running
+
+```sh
+# Backend
+uvicorn backend_fastapi.main:app --reload --env-file backend_fastapi/.env
+
+# Frontend
+cd frontend_angular
+ng serve
+```
+
 ## Setting up the project
 
 * backend: fastapi
@@ -18,7 +29,7 @@ mkdir backend_fastapi && cd backend_fastapi
 uv init --python=3.12
 
 # Install dependencies and run it
-uv add "fastapi[all]" authlib python-dotenv python-jose
+uv add "fastapi[all]" authlib python-dotenv python-jose langchain langchain-openai sqlalchemy alembic
 uv run uvicorn main:app --reload
 
 cd ..
@@ -85,4 +96,14 @@ curl -X GET "http://localhost:8000/profile/me" -H "Authorization: Bearer YOUR_TO
 
 ```bash
 curl -X GET "http://localhost:8000/admin/dashboard" -H "Authorization: Bearer YOUR_TOKEN_HERE"
+```
+
+## Database management with alembic
+
+```sh
+# Create a migration plan
+alembic revision --autogenerate -m "Create conversation history table"
+
+# Apply the migration
+alembic upgrade head
 ```

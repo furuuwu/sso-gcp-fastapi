@@ -1,27 +1,38 @@
+# backend_fastapi/main.py
 import uvicorn
 import os
+import json
+
 from fastapi import FastAPI, Request, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from authlib.integrations.starlette_client import OAuth, OAuthError
 from jose import jwt, JWTError
-from starlette.middleware.sessions import SessionMiddleware
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
-# Load environment variables from .env file
-load_dotenv()
+# Import SQLAlchemy components using absolute paths from the project root
+from . import models, database
+
+from langchain_openai import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain
+from langchain.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+
+# Create database tables (if they don't exist)
+models.Base.metadata.create_all(bind=database.engine)
 
 # --- App & Middleware Configuration ---
 app = FastAPI()
-
-# Add the SessionMiddleware
-# The secret key is used to sign the session cookie.
-# You should use the APP_SECRET_KEY from your .env file for this.
 app.add_middleware(SessionMiddleware, secret_key=os.getenv("APP_SECRET_KEY"))
-
-# This allows your Angular frontend (running on http://localhost:4200)
-# to communicate with your backend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4200"],
@@ -30,17 +41,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Settings ---
+# --- Settings & Pydantic Models ---
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# The ADMIN_USERS list is no longer needed.
 
-# In a real app, this would be a database lookup.
-ADMIN_USERS = ["your.admin.email@gmail.com"]
 
-# --- Authlib Setup ---
+class ChatRequest(BaseModel):
+    message: str
+
+
+class ChatResponse(BaseModel):
+    reply: str
+
+
+# --- Database Dependency ---
+def get_db():
+    db = database.SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+# --- LangChain Setup ---
+llm = ChatOpenAI(model_name="gpt-4", openai_api_key=OPENAI_API_KEY)
+prompt = ChatPromptTemplate.from_messages(
+    [
+        SystemMessagePromptTemplate.from_template(
+            "The following is a friendly conversation between a human and an AI."
+        ),
+        MessagesPlaceholder(variable_name="history"),
+        HumanMessagePromptTemplate.from_template("{input}"),
+    ]
+)
+
+# --- Authlib Setup & JWT ---
 oauth = OAuth()
 oauth.register(
     name="google",
@@ -51,27 +91,51 @@ oauth.register(
 )
 
 
-# --- Internal JWT Functions ---
 def create_access_token(data: dict):
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, APP_SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
+    return jwt.encode(to_encode, APP_SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.User:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
+        )
+
+    token = auth_header.split("Bearer ")[1]
+    try:
+        payload = jwt.decode(token, APP_SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload"
+            )
+
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if user is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
+            )
+        return user
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+        )
 
 
 # --- Authentication Endpoints ---
 @app.get("/api/auth/login")
 async def login(request: Request):
-    """Redirects the user to Google's login page."""
-    # The URL must match *exactly* what you've configured in your Google Cloud Console
     redirect_uri = request.url_for("auth_callback")
     return await oauth.google.authorize_redirect(request, redirect_uri)
 
 
 @app.get("/api/auth/callback", name="auth_callback")
-async def auth(request: Request):
-    """Processes the callback from Google and redirects back to Angular with a token."""
+async def auth(request: Request, db: Session = Depends(get_db)):
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as error:
@@ -85,45 +149,84 @@ async def auth(request: Request):
             url="http://localhost:4200/login-failed?error=NoUserInfo"
         )
 
-    # --- Authorization: Check role and create internal JWT ---
-    user_role = "admin" if user_info["email"] in ADMIN_USERS else "user"
+    # --- Check for user in DB or create new one ---
+    user = db.query(models.User).filter(models.User.email == user_info["email"]).first()
+    if not user:
+        user = models.User(
+            email=user_info["email"],
+            name=user_info["name"],
+            picture=user_info["picture"],
+            role="user",  # Default role
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
 
+    # Use the role from the database to create the token
     internal_access_token = create_access_token(
         data={
-            "sub": user_info["email"],
-            "role": user_role,
-            "name": user_info["name"],
-            "picture": user_info["picture"],
+            "sub": user.email,
+            "role": user.role,
+            "name": user.name,
+            "picture": user.picture,
         }
     )
-
-    # Redirect back to Angular with the token in the URL fragment
     redirect_url = (
         f"http://localhost:4200/auth/callback#access_token={internal_access_token}"
     )
-
-    # DEBUGGING: Log the final redirect URL
-    print(f"DEBUG: Redirecting to Angular with URL: {redirect_url}")
-
     return RedirectResponse(url=redirect_url)
 
 
-# --- Protected API Endpoints ---
-# Note: In a real app, you would use FastAPI's Depends() with a proper security scheme
-# to extract and verify the token for each protected endpoint.
-# For simplicity here, we'll just show the concept.
-@app.get("/api/profile/me")
-async def read_current_user():
-    # In a real scenario, a dependency would extract the user from the token.
-    # This is just a placeholder to show a protected endpoint.
-    return {"message": "This is a protected profile endpoint."}
+# -- Chat Endpoint with SQLAlchemy & User ID --
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_ai(
+    chat_request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # 1. Load conversation history from DB using the user's ID
+    history_record = (
+        db.query(models.ConversationHistory)
+        .filter(models.ConversationHistory.user_id == current_user.id)
+        .first()
+    )
 
+    memory = ConversationBufferMemory(return_messages=True)
+    if history_record and history_record.history:
+        past_messages = json.loads(history_record.history)
+        for msg in past_messages:
+            # --- FIX: Access 'content' directly, not 'data.content' ---
+            if msg["type"] == "human":
+                memory.chat_memory.add_user_message(msg["content"])
+            elif msg["type"] == "ai":
+                memory.chat_memory.add_ai_message(msg["content"])
 
-@app.get("/api/admin/dashboard")
-async def read_admin_dashboard():
-    # A dependency would check for the 'admin' role from the token.
-    return {"message": "Welcome to the protected admin dashboard!"}
+    # 2. Create conversation chain
+    conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm)
 
+    # 3. Get AI response
+    try:
+        response = await conversation.ainvoke(chat_request.message)
+        ai_reply = response["response"]
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Error communicating with AI service: {str(e)}"
+        )
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 4. Save updated history to DB
+    # The memory.chat_memory.messages now contains the full history.
+    # We need to convert the message objects to dictionaries before saving.
+    history_to_save = [message.dict() for message in memory.chat_memory.messages]
+    updated_history_json = json.dumps(history_to_save)
+
+    if history_record:
+        history_record.history = updated_history_json
+    else:
+        new_history_record = models.ConversationHistory(
+            user_id=current_user.id, history=updated_history_json
+        )
+        db.add(new_history_record)
+
+    db.commit()
+
+    return ChatResponse(reply=ai_reply)

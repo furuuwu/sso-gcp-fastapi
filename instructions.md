@@ -1080,3 +1080,796 @@ async def read_admin_dashboard(token: str): # Simplified dependency
         )
     return {"message": f"Welcome to the admin dashboard, {user.get('name')}!"}
 ```
+
+## PROMPT: lets improve the app. I want create a chat with gpt4 application using langchain. Use sqlite as the database. Initiate the database from a script init_db.py. The history of the conversation should be stored in a conversation_history table, and associated with a user
+
+* Backend (FastAPI): We'll create a database initialization script, define the database models, and build a new protected API endpoint (/api/chat) that handles the chat logic.
+* Frontend (Angular): We'll create a new, protected route (/chat) with a component that provides a clean user interface for the chat.
+
+1- Backend Setup
+
+```sh
+pip install langchain langchain-openai sqlalchemy python-dotenv
+```
+
+You also need to add your OpenAI API key to your .env file.
+
+```txt
+# Replace with your actual credentials from the Google Cloud Console
+GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
+
+# Generate a strong, random key for production (e.g., using `openssl rand -hex 32`)
+APP_SECRET_KEY="a-very-strong-and-random-secret-key-for-jwt"
+
+# Add your OpenAI API Key here
+OPENAI_API_KEY="sk-..."
+```
+
+Now, let's create the database initialization script.
+
+```py
+# backend_fastapi/init_db.py
+import sqlite3
+
+# This script should be run once to set up the database.
+
+# Connect to the SQLite database (this will create the file if it doesn't exist)
+conn = sqlite3.connect('chat_history.db')
+cursor = conn.cursor()
+
+# Create the conversation_history table
+# user_email will link the history to a specific user.
+# The history itself is stored as a JSON string.
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS conversation_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_email TEXT NOT NULL UNIQUE,
+    history TEXT NOT NULL
+)
+''')
+
+print("Database 'chat_history.db' and table 'conversation_history' initialized successfully.")
+
+# Commit the changes and close the connection
+conn.commit()
+conn.close()
+```
+
+Important: Run this script once from your terminal to create the database file: python init_db.py
+
+Finally, I'll update your main.py to include all the new chat logic and the API endpoint.
+
+2- Frontend Setup
+
+```ts
+// frontend_angular/src/app/chat/chat.service.ts
+import { HttpClient } from '@angular/common/http';
+import { Injectable, inject } from '@angular/core';
+import { Observable } from 'rxjs';
+
+export interface ChatMessage {
+  role: 'user' | 'ai';
+  content: string;
+}
+
+@Injectable({
+  providedIn: 'root'
+})
+export class ChatService {
+  private http = inject(HttpClient);
+  // In a real app, this would come from an environment file
+  private apiUrl = 'http://localhost:8000/api/chat';
+
+  sendMessage(message: string): Observable<{ reply: string }> {
+    return this.http.post<{ reply: string }>(this.apiUrl, { message });
+  }
+}
+```
+
+```ts
+// frontend_angular/src/app/chat/chat.component.ts
+import { Component, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { ChatService, ChatMessage } from './chat.service';
+
+@Component({
+  selector: 'app-chat',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
+  templateUrl: './chat.component.html',
+  styleUrl: './chat.component.css'
+})
+export class ChatComponent {
+  private chatService = inject(ChatService);
+
+  userInput = signal('');
+  messages = signal<ChatMessage[]>([]);
+  isLoading = signal(false);
+
+  sendMessage() {
+    const message = this.userInput().trim();
+    if (!message) return;
+
+    // Add user's message to the UI
+    this.messages.update(current => [...current, { role: 'user', content: message }]);
+    this.isLoading.set(true);
+    this.userInput.set(''); // Clear input field
+
+    // Send message to the backend
+    this.chatService.sendMessage(message).subscribe({
+      next: (response) => {
+        // Add AI's response to the UI
+        this.messages.update(current => [...current, { role: 'ai', content: response.reply }]);
+        this.isLoading.set(false);
+      },
+      error: (err) => {
+        console.error("Error sending message:", err);
+        this.messages.update(current => [...current, { role: 'ai', content: 'Sorry, I encountered an error. Please try again.' }]);
+        this.isLoading.set(false);
+      }
+    });
+  }
+}
+```
+
+```html
+<!-- frontend_angular/src/app/chat/chat.component.html -->
+<div class="flex flex-col h-[calc(100vh-10rem)] bg-gray-50 rounded-lg shadow-md">
+  <!-- Message Display Area -->
+  <div class="flex-1 p-6 overflow-y-auto">
+    <div class="flex flex-col space-y-4">
+      @for(message of messages(); track $index) {
+        <div class="flex" [ngClass]="{'justify-end': message.role === 'user', 'justify-start': message.role === 'ai'}">
+          <div 
+            class="max-w-lg p-3 rounded-lg"
+            [ngClass]="{
+              'bg-blue-500 text-white': message.role === 'user', 
+              'bg-gray-200 text-gray-800': message.role === 'ai'
+            }">
+            <p>{{ message.content }}</p>
+          </div>
+        </div>
+      }
+      @if(isLoading()) {
+        <div class="flex justify-start">
+           <div class="max-w-lg p-3 rounded-lg bg-gray-200 text-gray-800">
+             <div class="flex items-center space-x-2">
+                <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse"></div>
+                <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:0.2s]"></div>
+                <div class="w-2 h-2 bg-gray-500 rounded-full animate-pulse [animation-delay:0.4s]"></div>
+             </div>
+           </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Input Area -->
+  <div class="p-4 bg-white border-t border-gray-200">
+    <div class="flex items-center space-x-3">
+      <input 
+        type="text"
+        [(ngModel)]="userInput"
+        (keyup.enter)="sendMessage()"
+        [disabled]="isLoading()"
+        placeholder="Type your message here..."
+        class="flex-1 p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition"
+      />
+      <button 
+        (click)="sendMessage()"
+        [disabled]="isLoading() || userInput().trim() === ''"
+        class="px-6 py-2 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed transition">
+        Send
+      </button>
+    </div>
+  </div>
+</div>
+```
+
+Finally, add the new chat route to your app.routes.ts and a link in app.component.html
+
+```ts
+// frontend_angular/src/app.routes.ts
+import { Routes } from '@angular/router';
+import { LoginComponent } from './login/login.component';
+import { ProfileComponent } from './profile/profile.component';
+import { AdminComponent } from './admin/admin.component';
+import { AuthCallbackComponent } from './auth/auth-callback/auth-callback.component';
+import { authGuard } from './auth/auth.guard';
+import { adminGuard } from './auth/admin.guard';
+import { LoginFailedComponent } from './login-failed/login-failed.component';
+import { ChatComponent } from './chat/chat.component'; // Import the new component
+
+export const routes: Routes = [
+  { path: 'login', component: LoginComponent },
+  { path: 'auth/callback', component: AuthCallbackComponent },
+  { path: 'login-failed', component: LoginFailedComponent },
+  
+  // A parent route protected by the authGuard.
+  {
+    path: '',
+    canActivate: [authGuard],
+    children: [
+      {
+        path: 'profile', 
+        component: ProfileComponent
+      },
+      { 
+        path: 'admin', 
+        component: AdminComponent,
+        canActivate: [adminGuard]
+      },
+      {
+        path: 'chat', // Add the new chat route
+        component: ChatComponent
+      },
+      { 
+        path: '', 
+        redirectTo: 'profile', 
+        pathMatch: 'full'
+      }
+    ]
+  },
+  
+  // Wildcard route redirects to the guarded parent route. 
+  { path: '**', redirectTo: '' } 
+];
+```
+
+```html
+<!-- frontend_angular/src/app/app.component.html -->
+<nav class="bg-gray-800 text-white p-4">
+  <div class="container mx-auto flex justify-between items-center">
+    <h1 class="text-xl font-bold">SSO Demo App</h1>
+    <div>
+      <a routerLink="/profile" class="px-3 py-2 rounded hover:bg-gray-700">Profile</a>
+      <a routerLink="/chat" class="px-3 py-2 rounded hover:bg-gray-700">Chat</a>
+      
+      <!-- Show Admin link only if user is an admin -->
+      @if (isAdmin()) {
+        <a routerLink="/admin" class="px-3 py-2 rounded hover:bg-gray-700">Admin</a>
+      }
+
+      <!-- Show Login/Logout button based on authentication status -->
+      @if (isLoggedIn()) {
+        <button (click)="logout()" class="ml-4 px-3 py-2 rounded bg-red-600 hover:bg-red-700">Logout</button>
+      } @else {
+        <a routerLink="/login" class="ml-4 px-3 py-2 rounded bg-blue-600 hover:bg-blue-700">Login</a>
+      }
+    </div>
+  </div>
+</nav>
+
+<main class="container mx-auto p-4">
+  <router-outlet></router-outlet>
+</main>
+```
+
+## PROMPT: for the backend, i want to use sqlalchemy and alembic
+
+Using SQLAlchemy as an ORM (Object-Relational Mapper) and Alembic for database migrations is a much more robust and scalable solution for your backend than raw sqlite3 connections. It will make managing your database schema much easier as your application grows.
+
+1- Install New Dependencies
+
+```sh
+pip install sqlalchemy alembic
+```
+
+2- Set Up the Database and Models
+
+We'll create two new files, database.py and models.py, to define our database connection and tables using SQLAlchemy's ORM.
+
+```py
+# backend_fastapi/database.py
+from sqlalchemy import create_engine
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+DATABASE_URL = "sqlite:///./chat_history.db"
+
+# create_engine is the entry point to the database.
+# The 'check_same_thread' argument is needed only for SQLite.
+engine = create_engine(
+    DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+# Each SessionLocal instance will be a database session.
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Base will be used to create our ORM models (the database tables).
+Base = declarative_base()
+```
+
+```py
+# backend_fastapi/models.py
+from sqlalchemy import Column, Integer, String, Text
+from .database import Base
+
+class ConversationHistory(Base):
+    __tablename__ = "conversation_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, unique=True, index=True, nullable=False)
+    history = Column(Text, nullable=False)
+```
+
+3- Set Up Alembic for Migrations
+
+Alembic will now handle creating and updating your database tables. The init_db.py script is no longer needed.
+
+* Initialize Alembic
+
+```sh
+alembic init alembic
+```
+
+This creates a new alembic folder and an alembic.ini file.
+
+* Configure Alembic
+
+Open the newly created `alembic.ini` file and find the line that starts with `sqlalchemy.url`. Change it to point to your SQLite database:
+
+```txt
+sqlalchemy.url = sqlite:///./chat_history.db
+```
+
+Open alembic/env.py. We need to tell Alembic about our SQLAlchemy models. Add `from models import Base` near the top with the other imports. Find the line `target_metadata = None` and change it to:
+
+```py
+from models import Base
+target_metadata = Base.metadata
+```
+
+* Create the First Migration
+
+Now that Alembic is configured, you can generate the first migration script which will create the conversation_history table.
+
+```sh
+alembic revision --autogenerate -m "Create conversation history table"
+```
+
+This will create a new file in the alembic/versions/ directory.
+
+* Apply the Migration
+
+To actually create the table in your database, run the upgrade command.
+
+```sh
+alembic upgrade head
+```
+
+Your chat_history.db file will now contain the conversation_history table with the correct schema.
+
+4- Update the Main Application Logic
+
+Finally, we need to update main.py to use SQLAlchemy sessions instead of direct sqlite3 connections.
+
+```py
+# backend_fastapi/main.py
+import uvicorn
+import os
+import json
+
+from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from jose import jwt, JWTError
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+# Import SQLAlchemy components
+from . import models, database
+
+from langchain_openai import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain
+from langchain.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+
+# Create database tables (if they don't exist)
+# In a production app with Alembic, you might not need this line,
+# but it's good for development to ensure tables are created.
+models.Base.metadata.create_all(bind=database.engine)
+
+# --- App & Middleware Configuration ---
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("APP_SECRET_KEY"))
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Settings & Pydantic Models ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ADMIN_USERS = ["your.admin.email@gmail.com"]
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    reply: str
+
+# --- Database Dependency ---
+def get_db():
+    db = database.SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- LangChain Setup ---
+llm = ChatOpenAI(model_name="gpt-4", openai_api_key=OPENAI_API_KEY)
+prompt = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        "The following is a friendly conversation between a human and an AI."
+    ),
+    MessagesPlaceholder(variable_name="history"),
+    HumanMessagePromptTemplate.from_template("{input}")
+])
+
+# --- Authlib Setup & JWT ---
+oauth = OAuth()
+oauth.register(
+    name='google',
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, APP_SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user_email(request: Request) -> str:
+    # In a real app, you'd have a more robust dependency that extracts
+    # the token from the Authorization header and decodes it.
+    # This is a simplified version for demonstration.
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    
+    token = auth_header.split("Bearer ")[1]
+    try:
+        payload = jwt.decode(token, APP_SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        return email
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+
+
+# --- Authentication Endpoints ---
+@app.get('/api/auth/login')
+async def login(request: Request):
+    redirect_uri = request.url_for('auth_callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get('/api/auth/callback', name='auth_callback')
+async def auth(request: Request):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except OAuthError as error:
+        return RedirectResponse(url=f"http://localhost:4200/login-failed?error={error.error}")
+
+    user_info = token.get('userinfo')
+    if not user_info:
+        return RedirectResponse(url="http://localhost:4200/login-failed?error=NoUserInfo")
+
+    user_role = "admin" if user_info['email'] in ADMIN_USERS else "user"
+    internal_access_token = create_access_token(
+        data={"sub": user_info['email'], "role": user_role, "name": user_info['name'], "picture": user_info['picture']}
+    )
+    redirect_url = f"http://localhost:4200/auth/callback#access_token={internal_access_token}"
+    return RedirectResponse(url=redirect_url)
+
+# --- New Chat Endpoint with SQLAlchemy ---
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_ai(chat_request: ChatRequest, db: Session = Depends(get_db), user_email: str = Depends(get_current_user_email)):
+    
+    # 1. Load conversation history from DB using SQLAlchemy
+    history_record = db.query(models.ConversationHistory).filter(models.ConversationHistory.user_email == user_email).first()
+    
+    memory = ConversationBufferMemory(return_messages=True)
+    if history_record and history_record.history:
+        past_messages = json.loads(history_record.history)
+        for msg in past_messages:
+            if msg['type'] == 'human':
+                memory.chat_memory.add_user_message(msg['data']['content'])
+            elif msg['type'] == 'ai':
+                memory.chat_memory.add_ai_message(msg['data']['content'])
+
+    # 2. Create conversation chain
+    conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm)
+
+    # 3. Get AI response
+    try:
+        response = await conversation.ainvoke(chat_request.message)
+        ai_reply = response['response']
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error communicating with AI service: {str(e)}")
+
+    # 4. Save updated history to DB
+    updated_history_json = json.dumps(memory.chat_memory.dict()['messages'])
+    
+    if history_record:
+        history_record.history = updated_history_json
+    else:
+        new_history_record = models.ConversationHistory(user_email=user_email, history=updated_history_json)
+        db.add(new_history_record)
+    
+    db.commit()
+
+    return ChatResponse(reply=ai_reply)
+```
+
+## PROMPT: the admin users is still defined as a list. I want the role to be in the users table
+
+* Creating a new User table in your database model to store user information, including their role.
+* Updating the conversation history table to link to the new User table.
+* Modifying the authentication callback logic to check for or create a user in the database upon login.
+* Updating the chat endpoint to use the user's database ID.
+
+1- Update Your Database Models
+First, replace the content of models.py with the following code. This introduces a User model and links the ConversationHistory to it.
+
+```py
+# backend_fastapi/models.py
+from sqlalchemy import Column, Integer, String, Text, ForeignKey
+from sqlalchemy.orm import relationship
+from .database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True, nullable=False)
+    name = Column(String)
+    picture = Column(String)
+    role = Column(String, default="user", nullable=False) # 'user' or 'admin'
+
+    conversation_history = relationship("ConversationHistory", back_populates="user", uselist=False)
+
+class ConversationHistory(Base):
+    __tablename__ = "conversation_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    history = Column(Text, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+
+    user = relationship("User", back_populates="conversation_history")
+```
+
+2- Migrate Your Database with Alembic
+
+Now that the models are updated, you need to tell Alembic to generate and apply the database schema changes.
+
+* Generate a new migration script
+
+```sh
+alembic revision --autogenerate -m "Add User model and link conversation history"
+```
+
+This will create a new migration file in your alembic/versions/ folder.
+
+* Apply the migration
+
+To update your database with the new users table and modify the existing table, run:
+
+```sh
+alembic upgrade head
+```
+
+3- Update the Main Application Logic
+
+Finally, I have updated main.py in the Canvas to use the new User model for role management and to properly handle user creation on first login.
+
+```py
+import uvicorn
+import os
+import json
+
+from fastapi import FastAPI, Request, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from jose import jwt, JWTError
+from datetime import datetime, timedelta, timezone
+from dotenv import load_dotenv
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+# Import SQLAlchemy components
+from . import models, database
+
+from langchain_openai import ChatOpenAI
+from langchain.memory import ConversationBufferMemory
+from langchain.chains import ConversationChain
+from langchain.prompts import (
+    ChatPromptTemplate,
+    MessagesPlaceholder,
+    SystemMessagePromptTemplate,
+    HumanMessagePromptTemplate,
+)
+
+# Create database tables (if they don't exist)
+models.Base.metadata.create_all(bind=database.engine)
+
+# --- App & Middleware Configuration ---
+app = FastAPI()
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("APP_SECRET_KEY"))
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:4200"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Settings & Pydantic Models ---
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# The ADMIN_USERS list is no longer needed.
+
+class ChatRequest(BaseModel):
+    message: str
+
+class ChatResponse(BaseModel):
+    reply: str
+
+# --- Database Dependency ---
+def get_db():
+    db = database.SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# --- LangChain Setup ---
+llm = ChatOpenAI(model_name="gpt-4", openai_api_key=OPENAI_API_KEY)
+prompt = ChatPromptTemplate.from_messages([
+    SystemMessagePromptTemplate.from_template(
+        "The following is a friendly conversation between a human and an AI."
+    ),
+    MessagesPlaceholder(variable_name="history"),
+    HumanMessagePromptTemplate.from_template("{input}")
+])
+
+# --- Authlib Setup & JWT ---
+oauth = OAuth()
+oauth.register(
+    name='google',
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_id=GOOGLE_CLIENT_ID,
+    client_secret=GOOGLE_CLIENT_SECRET,
+    client_kwargs={'scope': 'openid email profile'}
+)
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, APP_SECRET_KEY, algorithm=ALGORITHM)
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.User:
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    
+    token = auth_header.split("Bearer ")[1]
+    try:
+        payload = jwt.decode(token, APP_SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+        
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if user is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        return user
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
+
+
+# --- Authentication Endpoints ---
+@app.get('/api/auth/login')
+async def login(request: Request):
+    redirect_uri = request.url_for('auth_callback')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+@app.get('/api/auth/callback', name='auth_callback')
+async def auth(request: Request, db: Session = Depends(get_db)):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except OAuthError as error:
+        return RedirectResponse(url=f"http://localhost:4200/login-failed?error={error.error}")
+
+    user_info = token.get('userinfo')
+    if not user_info:
+        return RedirectResponse(url="http://localhost:4200/login-failed?error=NoUserInfo")
+
+    # --- Check for user in DB or create new one ---
+    user = db.query(models.User).filter(models.User.email == user_info['email']).first()
+    if not user:
+        user = models.User(
+            email=user_info['email'],
+            name=user_info['name'],
+            picture=user_info['picture'],
+            role='user' # Default role
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+
+    # Use the role from the database to create the token
+    internal_access_token = create_access_token(
+        data={"sub": user.email, "role": user.role, "name": user.name, "picture": user.picture}
+    )
+    redirect_url = f"http://localhost:4200/auth/callback#access_token={internal_access_token}"
+    return RedirectResponse(url=redirect_url)
+
+# --- Chat Endpoint with SQLAlchemy & User ID ---
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_with_ai(chat_request: ChatRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    
+    # 1. Load conversation history from DB using the user's ID
+    history_record = db.query(models.ConversationHistory).filter(models.ConversationHistory.user_id == current_user.id).first()
+    
+    memory = ConversationBufferMemory(return_messages=True)
+    if history_record and history_record.history:
+        past_messages = json.loads(history_record.history)
+        for msg in past_messages:
+            if msg['type'] == 'human':
+                memory.chat_memory.add_user_message(msg['data']['content'])
+            elif msg['type'] == 'ai':
+                memory.chat_memory.add_ai_message(msg['data']['content'])
+
+    # 2. Create conversation chain
+    conversation = ConversationChain(memory=memory, prompt=prompt, llm=llm)
+
+    # 3. Get AI response
+    try:
+        response = await conversation.ainvoke(chat_request.message)
+        ai_reply = response['response']
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error communicating with AI service: {str(e)}")
+
+    # 4. Save updated history to DB
+    updated_history_json = json.dumps(memory.chat_memory.dict()['messages'])
+    
+    if history_record:
+        history_record.history = updated_history_json
+    else:
+        new_history_record = models.ConversationHistory(user_id=current_user.id, history=updated_history_json)
+        db.add(new_history_record)
+    
+    db.commit()
+
+    return ChatResponse(reply=ai_reply)
+```
